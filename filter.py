@@ -49,7 +49,7 @@ def main():
     parser.add_argument(
         "--cross_encoder",
         type=str,
-        required=True,
+        default="cross_model"
         help="Path or HF id of the cross-encoder you trained.",
     )
     parser.add_argument(
