@@ -2,12 +2,12 @@
 # coding: utf-8
 import argparse
 
-import torch
 import numpy as np
 import pandas as pd
-from sentence_transformers import SentenceTransformer, CrossEncoder, SparseEncoder
+import torch
+from datasets import Dataset, load_dataset
+from sentence_transformers import CrossEncoder, SentenceTransformer, SparseEncoder
 from transformers import AutoTokenizer
-from datasets import load_dataset, Dataset
 
 m1, m2 = "<t>", "</t>"
 
@@ -46,12 +46,7 @@ def target_relative_position(word: str, sentence: str) -> float:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="pierluigic/xl-lexeme")
-    parser.add_argument(
-        "--cross_encoder",
-        type=str,
-        default="cross_model"
-        help="Path or HF id of the cross-encoder you trained.",
-    )
+    parser.add_argument("--cross_encoder", type=str, default="cross_model")
     parser.add_argument(
         "--subword_tokenizer",
         type=str,
@@ -63,18 +58,30 @@ def main():
     parser.add_argument("--dataset", type=str, required=True)
 
     # Filter knobs
-    parser.add_argument("--max_subwords", type=int, default=2,
-                        help="Drop examples whose target word splits into more than this many subwords.")
+    parser.add_argument(
+        "--max_subwords",
+        type=int,
+        default=2,
+        help="Drop examples whose target word splits into more than this many subwords.",
+    )
     parser.add_argument("--min_sentence_tokens", type=int, default=5)
     parser.add_argument("--max_sentence_chars", type=int, default=1000)
-    parser.add_argument("--min_lemma_per_label", type=int, default=2,
-                        help="Require at least this many examples per (lemma, label) in the output.")
+    parser.add_argument(
+        "--min_lemma_per_label",
+        type=int,
+        default=2,
+        help="Require at least this many examples per (lemma, label) in the output.",
+    )
     parser.add_argument("--xl_same_thr", type=float, default=0.75)
     parser.add_argument("--xl_diff_thr", type=float, default=0.40)
     parser.add_argument("--ce_same_thr", type=float, default=0.70)
     parser.add_argument("--ce_diff_thr", type=float, default=0.40)
-    parser.add_argument("--require_agreement", action="store_true", default=True,
-                        help="Only keep rows where both models agree with the label.")
+    parser.add_argument(
+        "--require_agreement",
+        action="store_true",
+        default=True,
+        help="Only keep rows where both models agree with the label.",
+    )
 
     args = parser.parse_args()
 
@@ -130,8 +137,12 @@ def main():
     model.eval()
 
     with torch.no_grad():
-        embs1 = model.encode(s1.values, batch_size=args.batch_size, show_progress_bar=True)
-        embs2 = model.encode(s2.values, batch_size=args.batch_size, show_progress_bar=True)
+        embs1 = model.encode(
+            s1.values, batch_size=args.batch_size, show_progress_bar=True
+        )
+        embs2 = model.encode(
+            s2.values, batch_size=args.batch_size, show_progress_bar=True
+        )
     xl_sim = model.similarity_pairwise(embs1, embs2).cpu().numpy()
     dataset["label_xl-lexeme"] = xl_sim
 
@@ -157,11 +168,13 @@ def main():
 
     # --- Per-model decisions ---
     dataset["xl_pred"] = np.where(
-        xl_sim >= args.xl_same_thr, 1,
+        xl_sim >= args.xl_same_thr,
+        1,
         np.where(xl_sim <= args.xl_diff_thr, 0, -1),
     )
     dataset["ce_pred"] = np.where(
-        ce_scores >= args.ce_same_thr, 1,
+        ce_scores >= args.ce_same_thr,
+        1,
         np.where(ce_scores <= args.ce_diff_thr, 0, -1),
     )
 
@@ -174,9 +187,9 @@ def main():
         keep = xl_agrees & ce_agrees
     else:
         # softer: both models must not disagree; one can be uncertain (-1)
-        keep = (~((dataset["xl_pred"] != -1) & (dataset["xl_pred"] != dataset["label"]))) & (
-            ~((dataset["ce_pred"] != -1) & (dataset["ce_pred"] != dataset["label"]))
-        )
+        keep = (
+            ~((dataset["xl_pred"] != -1) & (dataset["xl_pred"] != dataset["label"]))
+        ) & (~((dataset["ce_pred"] != -1) & (dataset["ce_pred"] != dataset["label"])))
     dataset = dataset[keep].copy()
     print(f"After ensemble agreement: {len(dataset)}")
 
